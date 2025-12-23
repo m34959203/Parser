@@ -1,0 +1,251 @@
+version: "3.9"
+
+services:
+  # ============= Control Panel API =============
+  controlpanel:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.controlpanel
+    ports:
+      - "8000:8000"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=parser
+      - DB_PASSWORD=parser
+      - DB_NAME=parser
+      - RMQ_HOST=rabbitmq
+      - RMQ_PORT=5672
+      - RMQ_USER=guest
+      - RMQ_PASSWORD=guest
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - AI_PROVIDER=anthropic
+      - AI_ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - LOG_LEVEL=INFO
+      - DEBUG=false
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    volumes:
+      - ./src:/app/src:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - parser-network
+
+  # ============= HTTP Workers =============
+  uca-http:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.uca
+    command: python -m src.uca.http_worker.worker
+    environment:
+      - RMQ_HOST=rabbitmq
+      - RMQ_PORT=5672
+      - RMQ_USER=guest
+      - RMQ_PASSWORD=guest
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - DELTA_PATH=s3://parser-lake/delta/
+      - WORKER_HTTP_PREFETCH=10
+      - WORKER_HTTP_CONCURRENCY=50
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    deploy:
+      replicas: 3
+    networks:
+      - parser-network
+
+  # ============= Browser Workers =============
+  uca-browser:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.browser
+    command: python -m src.uca.browser_worker.worker
+    environment:
+      - RMQ_HOST=rabbitmq
+      - RMQ_PORT=5672
+      - RMQ_USER=guest
+      - RMQ_PASSWORD=guest
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - DELTA_PATH=s3://parser-lake/delta/
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+      - WORKER_BROWSER_PREFETCH=2
+      - WORKER_BROWSER_SESSIONS=5
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 2G
+    shm_size: "1gb"
+    networks:
+      - parser-network
+
+  # ============= Cure Data Parser =============
+  cure-parser:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.cure
+    command: python -m src.data_pipeline.cure_parser
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=parser
+      - DB_PASSWORD=parser
+      - DB_NAME=parser
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - DELTA_PATH=s3://parser-lake/delta/
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    networks:
+      - parser-network
+
+  # ============= Frontend =============
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - controlpanel
+    networks:
+      - parser-network
+
+  # ============= PostgreSQL =============
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: parser
+      POSTGRES_PASSWORD: parser
+      POSTGRES_DB: parser
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U parser"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - parser-network
+
+  # ============= RabbitMQ =============
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - parser-network
+
+  # ============= MinIO (S3-compatible storage) =============
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    networks:
+      - parser-network
+
+  # ============= MinIO bucket initialization =============
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc mb myminio/parser-lake --ignore-existing;
+      mc mb myminio/parser-trash --ignore-existing;
+      exit 0;
+      "
+    networks:
+      - parser-network
+
+  # ============= Prometheus (Monitoring) =============
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    networks:
+      - parser-network
+
+  # ============= Grafana (Dashboards) =============
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    networks:
+      - parser-network
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  minio_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  parser-network:
+    driver: bridge

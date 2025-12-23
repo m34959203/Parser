@@ -1,0 +1,21 @@
+# UCA Browser Worker Dockerfile with Playwright
+FROM mcr.microsoft.com/playwright/python:v1.41.0
+
+WORKDIR /app
+
+# Install Python dependencies
+COPY pyproject.toml .
+RUN pip install --no-cache-dir -e .
+
+# Install Playwright browsers
+RUN playwright install chromium firefox
+
+# Copy application code
+COPY src/ ./src/
+
+# Create non-root user (playwright image has different setup)
+RUN chown -R pwuser:pwuser /app
+USER pwuser
+
+# Run worker
+CMD ["python", "-m", "src.uca.browser_worker.worker"]

@@ -1,0 +1,64 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: parser-config
+  namespace: universal-parser
+data:
+  # Database
+  DB_HOST: "postgres-service"
+  DB_PORT: "5432"
+  DB_NAME: "parser"
+
+  # RabbitMQ
+  RMQ_HOST: "rabbitmq-service"
+  RMQ_PORT: "5672"
+
+  # MinIO
+  MINIO_ENDPOINT: "minio-service:9000"
+
+  # Delta Lake
+  DELTA_PATH: "s3://parser-lake/delta/"
+  DELTA_BRONZE_PATH: "s3://parser-lake/delta/bronze/"
+  DELTA_SILVER_PATH: "s3://parser-lake/delta/silver/"
+
+  # AI Module
+  AI_PROVIDER: "anthropic"
+  AI_MODEL_NAME: "claude-sonnet-4-20250514"
+  AI_MAX_TOKENS: "4000"
+  AI_TEMPERATURE: "0.1"
+
+  # API
+  API_HOST: "0.0.0.0"
+  API_PORT: "8000"
+  API_PREFIX: "/api/v1"
+
+  # Logging
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
+
+  # Environment
+  ENVIRONMENT: "production"
+  DEBUG: "false"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: parser-secrets
+  namespace: universal-parser
+type: Opaque
+stringData:
+  # Database
+  DB_USER: "parser"
+  DB_PASSWORD: "CHANGE_ME_IN_PRODUCTION"
+
+  # RabbitMQ
+  RMQ_USER: "parser"
+  RMQ_PASSWORD: "CHANGE_ME_IN_PRODUCTION"
+
+  # MinIO
+  MINIO_ACCESS_KEY: "minioadmin"
+  MINIO_SECRET_KEY: "CHANGE_ME_IN_PRODUCTION"
+
+  # AI API Keys (set these via kubectl or secrets manager)
+  AI_ANTHROPIC_API_KEY: ""
+  AI_OPENAI_API_KEY: ""

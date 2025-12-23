@@ -1,0 +1,13 @@
+"""AI prompts for schema generation."""
+
+from .extraction import (
+    STRUCTURE_ANALYSIS_PROMPT,
+    SCHEMA_GENERATION_PROMPT,
+    SELECTOR_IMPROVEMENT_PROMPT,
+)
+
+__all__ = [
+    "STRUCTURE_ANALYSIS_PROMPT",
+    "SCHEMA_GENERATION_PROMPT",
+    "SELECTOR_IMPROVEMENT_PROMPT",
+]
