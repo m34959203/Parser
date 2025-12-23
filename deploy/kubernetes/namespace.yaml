@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: universal-parser
+  labels:
+    app.kubernetes.io/name: universal-parser
+    app.kubernetes.io/managed-by: kubectl

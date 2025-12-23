@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: uca-browser
+  namespace: universal-parser
+  labels:
+    app: uca-browser
+    component: worker
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: uca-browser
+  template:
+    metadata:
+      labels:
+        app: uca-browser
+    spec:
+      containers:
+        - name: uca-browser
+          image: universal-parser/uca-browser:latest
+          command: ["python", "-m", "src.uca.browser_worker.worker"]
+          envFrom:
+            - configMapRef:
+                name: parser-config
+            - secretRef:
+                name: parser-secrets
+          env:
+            - name: WORKER_BROWSER_PREFETCH
+              value: "2"
+            - name: WORKER_BROWSER_SESSIONS
+              value: "5"
+            - name: PLAYWRIGHT_BROWSERS_PATH
+              value: "/ms-playwright"
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          volumeMounts:
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: uca-browser
+                topologyKey: kubernetes.io/hostname
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: uca-browser-hpa
+  namespace: universal-parser
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: uca-browser
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60

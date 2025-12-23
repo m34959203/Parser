@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: uca-http
+  namespace: universal-parser
+  labels:
+    app: uca-http
+    component: worker
+spec:
+  replicas: 5
+  selector:
+    matchLabels:
+      app: uca-http
+  template:
+    metadata:
+      labels:
+        app: uca-http
+    spec:
+      containers:
+        - name: uca-http
+          image: universal-parser/uca:latest
+          command: ["python", "-m", "src.uca.http_worker.worker"]
+          envFrom:
+            - configMapRef:
+                name: parser-config
+            - secretRef:
+                name: parser-secrets
+          env:
+            - name: WORKER_HTTP_PREFETCH
+              value: "10"
+            - name: WORKER_HTTP_CONCURRENCY
+              value: "50"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: uca-http
+                topologyKey: kubernetes.io/hostname
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: uca-http-hpa
+  namespace: universal-parser
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: uca-http
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
