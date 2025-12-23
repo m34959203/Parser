@@ -1,0 +1,13 @@
+[build]
+builder = "nixpacks"
+
+[build.nixpacks]
+aptPkgs = ["libpq-dev"]
+
+[deploy]
+startCommand = "chmod +x start.sh && ./start.sh"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+
+[variables]
+PYTHON_VERSION = "3.12"

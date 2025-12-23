@@ -1,0 +1,14 @@
+[tool.nixpacks]
+providers = ["python"]
+
+[phases.setup]
+aptPkgs = ["libpq-dev", "gcc"]
+
+[phases.install]
+cmds = ["pip install --upgrade pip", "pip install ."]
+
+[phases.build]
+cmds = ["playwright install chromium --with-deps"]
+
+[start]
+cmd = "./start.sh"
