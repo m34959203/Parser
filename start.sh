@@ -3,8 +3,12 @@
 
 set -e
 
-# Run database migrations
-alembic upgrade head
+# Run database migrations (skip if no database URL)
+if [ -n "$DATABASE_URL" ]; then
+    echo "Running database migrations..."
+    python3 -m alembic upgrade head || echo "Migration skipped or failed"
+fi
 
 # Start the application
-exec uvicorn src.controlpanel.main:app --host 0.0.0.0 --port ${PORT:-8000}
+echo "Starting application on port ${PORT:-8000}..."
+exec python3 -m uvicorn src.controlpanel.main:app --host 0.0.0.0 --port ${PORT:-8000}
