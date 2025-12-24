@@ -1,9 +1,5 @@
 [phases.setup]
-nixPkgs = ["python312", "python312Packages.pip", "postgresql_16"]
 aptPkgs = ["libpq-dev"]
-
-[phases.install]
-cmds = ["python3 -m pip install --upgrade pip", "python3 -m pip install ."]
 
 [start]
 cmd = "./start.sh"
