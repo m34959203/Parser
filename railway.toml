@@ -1,10 +1,6 @@
 [build]
 builder = "nixpacks"
 
-[build.nixpacks]
-nixPkgs = ["python312", "python312Packages.pip"]
-aptPkgs = ["libpq-dev"]
-
 [deploy]
 startCommand = "chmod +x start.sh && ./start.sh"
 healthcheckPath = "/health"
