@@ -38,7 +38,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # Shutdown
     logger.info("Shutting down ControlPanel API")
-    await close_db()
+    try:
+        await close_db()
+    except Exception as e:
+        logger.warning("Error closing database", error=str(e))
     await close_rmq_client()
 
 

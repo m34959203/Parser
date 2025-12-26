@@ -4,12 +4,13 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from sqlalchemy import MetaData
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+import structlog
 
 from src.config import get_settings
 
-settings = get_settings()
+logger = structlog.get_logger()
 
 # Naming convention for constraints
 convention = {
@@ -27,25 +28,42 @@ class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=convention)
 
 
-# Create async engine
-engine = create_async_engine(
-    settings.db.url,
-    pool_size=settings.db.pool_size,
-    max_overflow=settings.db.max_overflow,
-    echo=settings.debug,
-)
+# Lazy initialization of database engine
+_engine: AsyncEngine | None = None
+_async_session_factory: async_sessionmaker[AsyncSession] | None = None
 
-# Session factory
-async_session_factory = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
+
+def get_engine() -> AsyncEngine:
+    """Get or create the database engine lazily."""
+    global _engine
+    if _engine is None:
+        settings = get_settings()
+        logger.info("Creating database engine", url=settings.db.url[:50] + "...")
+        _engine = create_async_engine(
+            settings.db.url,
+            pool_size=settings.db.pool_size,
+            max_overflow=settings.db.max_overflow,
+            echo=settings.debug,
+        )
+    return _engine
+
+
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    """Get or create the session factory lazily."""
+    global _async_session_factory
+    if _async_session_factory is None:
+        _async_session_factory = async_sessionmaker(
+            get_engine(),
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+    return _async_session_factory
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Get database session dependency."""
-    async with async_session_factory() as session:
+    factory = get_session_factory()
+    async with factory() as session:
         try:
             yield session
             await session.commit()
@@ -59,7 +77,8 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 @asynccontextmanager
 async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
     """Get database session as context manager."""
-    async with async_session_factory() as session:
+    factory = get_session_factory()
+    async with factory() as session:
         try:
             yield session
             await session.commit()
@@ -72,10 +91,16 @@ async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
 
 async def init_db() -> None:
     """Initialize database tables."""
+    engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 
 async def close_db() -> None:
     """Close database connection."""
-    await engine.dispose()
+    global _engine, _async_session_factory
+    if _engine is not None:
+        await _engine.dispose()
+        _engine = None
+        _async_session_factory = None
+        logger.info("Database connection closed")

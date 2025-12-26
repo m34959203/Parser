@@ -243,5 +243,9 @@ async def close_rmq_client() -> None:
     """Close global RabbitMQ client."""
     global _rmq_client
     if _rmq_client:
-        await _rmq_client.close()
-        _rmq_client = None
+        try:
+            await _rmq_client.close()
+        except Exception as e:
+            logger.warning("Error closing RabbitMQ client", error=str(e))
+        finally:
+            _rmq_client = None
