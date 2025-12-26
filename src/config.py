@@ -1,5 +1,6 @@
 """Application configuration using Pydantic Settings."""
 
+import os
 from functools import lru_cache
 from typing import Literal
 
@@ -22,7 +23,20 @@ class DatabaseSettings(BaseSettings):
 
     @property
     def url(self) -> str:
-        """Get async database URL."""
+        """Get async database URL.
+
+        Supports DATABASE_URL environment variable (Railway-style) or individual DB_* variables.
+        """
+        # Check for DATABASE_URL first (Railway, Heroku, etc.)
+        database_url = os.environ.get("DATABASE_URL")
+        if database_url:
+            # Convert postgres:// to postgresql+asyncpg:// for async driver
+            if database_url.startswith("postgres://"):
+                return database_url.replace("postgres://", "postgresql+asyncpg://", 1)
+            elif database_url.startswith("postgresql://"):
+                return database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            return database_url
+
         return (
             f"postgresql+asyncpg://{self.user}:{self.password.get_secret_value()}"
             f"@{self.host}:{self.port}/{self.name}"
@@ -30,7 +44,18 @@ class DatabaseSettings(BaseSettings):
 
     @property
     def sync_url(self) -> str:
-        """Get sync database URL for Alembic."""
+        """Get sync database URL for Alembic.
+
+        Supports DATABASE_URL environment variable (Railway-style) or individual DB_* variables.
+        """
+        # Check for DATABASE_URL first (Railway, Heroku, etc.)
+        database_url = os.environ.get("DATABASE_URL")
+        if database_url:
+            # Convert postgres:// to postgresql:// for sync driver
+            if database_url.startswith("postgres://"):
+                return database_url.replace("postgres://", "postgresql://", 1)
+            return database_url
+
         return (
             f"postgresql://{self.user}:{self.password.get_secret_value()}"
             f"@{self.host}:{self.port}/{self.name}"
